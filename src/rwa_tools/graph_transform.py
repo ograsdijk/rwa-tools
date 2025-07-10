@@ -10,7 +10,9 @@ import networkx as nx
 import sympy as smp
 
 
-def create_coupling_graph(couplings, nstates: int) -> nx.Graph:
+def create_coupling_graph(
+    couplings: Sequence[Sequence[tuple[int, int]]], nstates: int
+) -> nx.Graph:
     """Create a graph representing the couplings between quantum states.
 
     Args:
