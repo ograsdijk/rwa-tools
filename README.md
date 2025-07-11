@@ -1,4 +1,4 @@
-# RWA-Tools
+# RWA Tools
 
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/rwa-tools)](https://pypi.python.org/pypi/rwa-tools/)
 [![PyPI - Package Version](https://img.shields.io/pypi/v/rwa-tools)](https://pypi.python.org/pypi/rwa-tools/)
@@ -7,7 +7,15 @@ A Python package for working with quantum Hamiltonians in the Rotating Wave Appr
 
 ## Overview
 
-RWA-Tools provides a set of utilities for symbolic manipulation of quantum Hamiltonians, particularly focusing on applying the Rotating Wave Approximation to simplify time-dependent quantum systems. This package leverages SymPy for symbolic mathematics to represent and transform Hamiltonians.
+RWA Tools provides a symbolic framework for representing, manipulating, and transforming quantum Hamiltonians to simplify their analysis using the rotating wave approximation. The package leverages symbolic mathematics (via SymPy) and graph theory (via NetworkX) to automate the often tedious process of applying the RWA to complex quantum systems.
+
+## Features
+
+- **Symbolic Hamiltonian representation**: Create symbolic Hamiltonians with arbitrary energy levels and couplings
+- **Graph-based coupling analysis**: Visualize and analyze quantum state couplings as graph networks
+- **Automated RWA transformations**: Transform Hamiltonians into rotating frames and apply the RWA
+- **Flexible coupling parameterization**: Control coupling strengths with configurable identifiers (a0, a1, etc.)
+- **System decomposition**: Split composite systems into independent subsystems for separate analysis
 
 ## Installation
 
@@ -15,7 +23,7 @@ RWA-Tools provides a set of utilities for symbolic manipulation of quantum Hamil
 pip install rwa-tools
 ```
 
-For development installation:
+Or install from source:
 
 ```bash
 git clone https://github.com/ograsdijk/rwa-tools.git
@@ -23,17 +31,50 @@ cd rwa-tools
 pip install -e .
 ```
 
-## Features
+## Dependencies
 
-- Symbolic representation of quantum Hamiltonians
-- Application of the Rotating Wave Approximation (RWA)
-- Unitary transformations to rotating frames
-- Handling of multi-level quantum systems
-- Simplification of time-dependent Hamiltonians
+- `sympy`: For symbolic mathematics
+- `networkx`: For graph representation and analysis
+- `numpy`: For numerical operations
+- `matplotlib`: For visualization (optional)
 
-## Usage Examples
+## Basic Usage
 
-### Creating a Symbolic Hamiltonian
+Here's a simple example demonstrating how to create and transform a three-level quantum system with two driving fields:
+
+```python
+import sympy as smp
+from rwa_tools import (
+    create_hamiltonian_symbolic,
+    create_coupling_graph,
+    create_hamiltonian_rwa
+)
+from rwa_tools.graph_transform import create_transform_matrix
+
+# Define a 3-level system with two driving fields
+nstates = 3
+couplings = [[(0, 1)], [(1, 2)]]  # Two fields: one coupling states 0-1, another coupling 1-2
+
+# Create the symbolic Hamiltonian
+hamiltonian = create_hamiltonian_symbolic(couplings, nstates)
+
+# Create the coupling graph
+coupling_graph = create_coupling_graph(couplings, nstates)
+
+# Generate the transformation matrix
+transform = create_transform_matrix(coupling_graph)
+
+# Apply the RWA transformation
+hamiltonian_rwa = create_hamiltonian_rwa(hamiltonian, transform)
+
+# Display the RWA Hamiltonian
+print("RWA Hamiltonian:")
+smp.pprint(hamiltonian_rwa.hamiltonian)
+```
+
+## Advanced Example: Lambda System
+
+Here's an example of analyzing a Lambda-type three-level system:
 
 ```python
 import matplotlib.pyplot as plt
@@ -43,103 +84,53 @@ import sympy as smp
 from rwa_tools import (
     create_coupling_graph,
     create_hamiltonian_symbolic,
-    create_hamiltonian_rwa,
+    create_hamiltonian_rwa
 )
 from rwa_tools.graph_transform import create_transform_matrix
 
-# Define your quantum system
-nstates = 5
-couplings = [[(0, 4), (1, 4)], [(2, 4), (3, 4)], [(1, 3)], [(0, 4), (1, 4)]]
+# Lambda system: two ground states (0,1) coupled to one excited state (2)
+nstates = 3
+couplings = [[(0, 2)], [(1, 2)]]  # Two fields coupling to the excited state
 
-# Create the Hamiltonian and coupling graph
+# Create the symbolic Hamiltonian and coupling graph
 hamiltonian = create_hamiltonian_symbolic(couplings, nstates)
-coupling_graph = create_coupling_graph(couplings, nstates=nstates)
+coupling_graph = create_coupling_graph(couplings, nstates)
 
 # Visualize the coupling graph
-fig, ax = plt.subplots()
-nx.draw(coupling_graph)
+plt.figure(figsize=(8, 6))
+pos = nx.spring_layout(coupling_graph)
+nx.draw(coupling_graph, pos, with_labels=True, node_size=800, node_color='lightblue',
+        font_size=12, font_weight='bold')
+plt.title("Lambda System Coupling Graph")
+plt.show()
+
+# Generate the transformation matrix and apply RWA
+transform = create_transform_matrix(coupling_graph)
+hamiltonian_rwa = create_hamiltonian_rwa(hamiltonian, transform)
+
+# Show the RWA Hamiltonian
+print("RWA Hamiltonian for Lambda System:")
+smp.pprint(hamiltonian_rwa.hamiltonian)
 ```
 
-### Applying RWA Transformation
+## Coupling Identifiers
+
+For systems with multiple couplings sharing the same frequency, RWA Tools uses a coefficient system with identifiers in the format `a{number}` (a0, a1, etc.):
 
 ```python
-from rwa_tools import (
-    create_coupling_graph,
-    create_hamiltonian_symbolic,
-    create_hamiltonian_rwa,
-)
-from rwa_tools.graph_transform import create_transform_matrix
-
-# Define your quantum system
+# A system where multiple transitions share the same driving frequency
 nstates = 5
-couplings = [[(0, 4), (1, 4)], [(2, 4), (3, 4)], [(1, 3)], [(0, 4), (1, 4)]]
+couplings = [[(0, 4), (1, 4), (2, 4)]]  # Three states coupled to state 4 by the same field
+
 hamiltonian = create_hamiltonian_symbolic(couplings, nstates)
-coupling_graph = create_coupling_graph(couplings, nstates=nstates)
+coupling_graph = create_coupling_graph(couplings, nstates)
 
-# Create transformation matrix from coupling graph
-T = create_transform_matrix(coupling_graph, hamiltonian.coupling_symbol_paths)
-
-# Apply RWA transformation
-hamiltonian_rwa = create_hamiltonian_rwa(hamiltonian, T)
-
-# Print the resulting RWA Hamiltonian
-print(hamiltonian_rwa.hamiltonian)
+# The coupling terms will use identifiers a0, a1, a2 to allow independent control
+# of the coupling strengths while sharing the same frequency
+print("Coupling Matrix with Identifiers:")
+smp.pprint(hamiltonian.coupling_matrix)
 ```
-
-### Working with Independent Subsystems
-
-```python
-from rwa_tools import (
-    create_coupling_graph,
-    split_into_independent_components,
-    create_hamiltonian_symbolic,
-    split_hamiltonian_by_components,
-)
-
-# Define a system with independent components
-nstates = 7
-couplings = [[(0, 2), (1, 2)], [(3, 5), (4, 5)]]
-hamiltonian = create_hamiltonian_symbolic(couplings, nstates)
-coupling_graph = create_coupling_graph(couplings, nstates=nstates)
-
-# Split into independent components
-independent_graphs = split_into_independent_components(coupling_graph)
-
-# Split the Hamiltonian by components
-independent_hamiltonians = split_hamiltonian_by_components(
-    hamiltonian, independent_graphs
-)
-
-# Access individual subsystem Hamiltonians
-print(independent_hamiltonians[0].total)
-print(independent_hamiltonians[1].total)
-```
-
-## API Documentation
-
-### Core Classes
-
-- **HamiltonianSymbolic**: Represents a symbolic quantum Hamiltonian in the lab frame
-- **HamiltonianRWA**: Represents a quantum Hamiltonian in the rotating wave approximation frame
-
-### Key Functions
-
-- **create_hamiltonian_symbolic**: Create a symbolic representation of a quantum Hamiltonian
-- **create_coupling_graph**: Create a graph representing couplings between quantum states
-- **create_hamiltonian_rwa**: Generate a Hamiltonian in the RWA frame from a lab-frame Hamiltonian and unitary transformation
-- **create_transform_matrix**: Create a transformation matrix based on the coupling graph
-- **split_into_independent_components**: Split a graph into independent connected components
-- **split_hamiltonian_by_components**: Split a Hamiltonian into independent subsystems
-
-## Mathematical Background
-
-The Rotating Wave Approximation is a technique used in quantum optics and quantum mechanics to simplify the treatment of time-dependent systems. The transformed Hamiltonian is calculated using:
-
-$H_{RWA} = U^{\dagger}HU - i\hbar U^{\dagger}(\partial U/\partial t)$
-
-Where $U$ is the unitary transformation matrix and $H$ is the original Hamiltonian.
-
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License

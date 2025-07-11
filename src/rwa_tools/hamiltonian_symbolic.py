@@ -1,3 +1,12 @@
+"""Symbolic Hamiltonian representations for quantum systems.
+
+This module provides classes and functions for creating and manipulating symbolic
+representations of quantum Hamiltonians. It uses SymPy for symbolic mathematics,
+allowing exact representations of energy levels, coupling terms, and their
+relationships. These symbolic Hamiltonians are used as the basis for applying
+the rotating wave approximation (RWA) to simplify time-dependent quantum systems.
+"""
+
 from dataclasses import dataclass
 from typing import Sequence
 import string
@@ -11,20 +20,26 @@ class HamiltonianSymbolic:
     """Symbolic representation of a quantum Hamiltonian.
 
     This class stores the components of a quantum Hamiltonian in symbolic form,
-    including energy levels, coupling terms, and their relationships.
+    including energy levels, coupling terms, and their relationships. The symbolic
+    representation allows for exact manipulation of the Hamiltonian before applying
+    numerical approximations.
 
     Attributes:
         nstates: Number of energy states in the system.
         hamiltonian: Diagonal matrix representing the unperturbed energy levels.
         coupling_matrix: Off-diagonal matrix representing field interactions.
         total: Complete Hamiltonian (hamiltonian + coupling_matrix).
-        coupling_phase: Matrix storing the phase factors for each coupling.
+        coupling_symbol_paths: Dictionary mapping state pairs to lists of coupling
+            frequency symbols that connect them.
         couplings: List of state pairs coupled by each driving field.
         energy_symbols: Symbolic variables representing energy levels (E0, E1, etc.).
         coupling_symbols: Symbolic variables representing field frequencies (ω0, ω1, etc.).
+        detuning_symbols: Symbolic variables representing frequency detunings (δ0, δ1, etc.).
         rabi_symbols: Symbolic variables representing Rabi frequencies (Ω0, Ω1, etc.).
-        omega_energy: Dictionary mapping field frequencies to corresponding energy differences.
-        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc. for each coupling).
+        omega_substitutions: Dictionary mapping field frequencies to corresponding
+            energy differences and detunings.
+        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc.)
+            used to scale individual couplings within a frequency group.
     """
 
     nstates: int
@@ -44,7 +59,7 @@ class HamiltonianSymbolic:
 def create_hamiltonian_symbolic(
     couplings: Sequence[Sequence[tuple[int, int]]], nstates: int
 ) -> HamiltonianSymbolic:
-    """Generates a symbolic representation of a quantum Hamiltonian.
+    """Generate a symbolic representation of a quantum Hamiltonian.
 
     This function constructs the time-dependent Hamiltonian for a multi-level
     quantum system driven by one or more external fields. The Hamiltonian is
@@ -53,8 +68,11 @@ def create_hamiltonian_symbolic(
     The total Hamiltonian is H = H_0 + V(t), where:
     - H_0 is the diagonal matrix of unperturbed energy levels (E0, E1, ...).
     - V(t) is the coupling matrix representing the interaction with external
-      fields. Each field is assumed to have an exponential time dependence,
-      V(t) = Ω * exp(iωt)/2 + h.c.
+      fields. Each field has an exponential time dependence: V(t) = Ω * exp(iωt)/2 + h.c.
+
+    For multiple couplings that share the same frequency, coefficient symbols (a0, a1, etc.)
+    are introduced to allow independent control of coupling strengths within the same
+    frequency group.
 
     Args:
         couplings: A sequence of driving field configurations. Each element is
@@ -65,14 +83,11 @@ def create_hamiltonian_symbolic(
         nstates: The total number of energy states in the system.
 
     Returns:
-        A `HamiltonianSymbolic` object containing:
-        - The diagonal energy matrix (hamiltonian)
-        - The off-diagonal coupling matrix (coupling_matrix)
-        - The total Hamiltonian (total)
-        - A matrix of coupling phase factors (coupling_phase)
-        - The coupling configuration (couplings)
-        - Symbolic representations of energies, frequencies, and couplings
-        - A mapping between driving frequencies and energy differences (omega_energy)
+        A `HamiltonianSymbolic` object containing the complete symbolic
+        representation of the quantum system Hamiltonian.
+
+    Raises:
+        ValueError: If nstates is not positive or if no couplings are provided.
     """
     # Validate inputs
     if nstates <= 0:
@@ -154,22 +169,19 @@ def _create_coupling_matrix(
 
     t = smp.Symbol("t", real=True)  # Time variable
 
-    # Use letters a-z for coupling set identifiers
-    coupling_identifiers = string.ascii_lowercase
+    # Keep track of the global identifier index (across all coupling sets)
+    global_identifier_index = 0
 
     for idx, (omega, detuning, base_rabi, coupling_group) in enumerate(zip(
         coupling_symbols, detuning_symbols, rabi_symbols, couplings
     )):
-        # Get the letter identifier for this coupling set (a, b, c, ...)
-        letter = coupling_identifiers[idx % len(coupling_identifiers)]
-
         # Store the relationship between frequency and energy difference
         if omega not in omega_substitutions:
             omega_substitutions[omega] = (
                 energy_symbols[coupling_group[0][1]] - energy_symbols[coupling_group[0][0]] + detuning
             )
 
-        # Only use letter identifiers if there's more than one coupling in the group
+        # Only use identifiers if there's more than one coupling in the group
         multiple_couplings = len(coupling_group) > 1
 
         # Store the identifiers for this coupling group
@@ -180,7 +192,8 @@ def _create_coupling_matrix(
             # For single couplings, use the base Rabi directly
             # For multiple couplings, create coefficient symbols (a0, a1, etc.)
             if multiple_couplings:
-                coef = smp.symbols(f"{letter}{i}", real=True)
+                coef = smp.symbols(f"a{global_identifier_index}", real=True)
+                global_identifier_index += 1
                 rabi = coef * base_rabi
                 group_identifiers.append(coef)
             else:

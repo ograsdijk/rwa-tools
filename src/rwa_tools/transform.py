@@ -1,3 +1,12 @@
+"""Rotating Wave Approximation (RWA) transformations for quantum systems.
+
+This module implements the core functionality for applying the Rotating Wave
+Approximation (RWA) to quantum systems. It provides functions to transform
+time-dependent Hamiltonians into a rotating frame where rapidly oscillating
+terms can be neglected, resulting in a simplified, time-independent effective
+Hamiltonian that accurately describes the system's long-term dynamics.
+"""
+
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -17,11 +26,16 @@ class HamiltonianRWA:
     Attributes:
         nstates: Number of energy states in the system.
         hamiltonian: Matrix representing the Hamiltonian in the RWA frame.
-        coupling_symbols: Symbolic variables representing field frequencies (ω0, ω1, etc.).
-        detuning_symbols: Symbolic variables representing frequency detunings (Δ0, Δ1, etc.).
-        rabi_symbols: Symbolic variables representing Rabi frequencies (Ω0, Ω1, etc.).
-        energy_symbols: Symbolic variables representing energy levels (E0, E1, etc.).
-        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc. for each coupling).
+            This is typically time-independent or contains only slowly
+            varying terms after the transformation.
+        detuning_symbols: Symbolic variables representing frequency detunings (δ0, δ1, etc.)
+            that quantify the mismatch between driving frequencies and transition frequencies.
+        rabi_symbols: Symbolic variables representing Rabi frequencies (Ω0, Ω1, etc.)
+            that characterize the strength of the coupling between states.
+        energy_symbols: Symbolic variables representing energy levels (E0, E1, etc.)
+            of the unperturbed quantum system.
+        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc.)
+            used to scale individual couplings within a frequency group.
     """
 
     nstates: int
@@ -42,10 +56,19 @@ def create_hamiltonian_rwa(
     transformation eliminates rapidly oscillating terms, simplifying the system
     dynamics while preserving the essential physics.
 
-    The transformed Hamiltonian is calculated using:
+    The transformed Hamiltonian is calculated using the formula:
     H_RWA = U†HU - iℏU†(∂U/∂t)
 
-    Where U is the unitary transformation matrix and H is the original Hamiltonian.
+    Where:
+    - U is the unitary transformation matrix that defines the rotating frame
+    - H is the original Hamiltonian in the lab frame
+    - ℏ is the reduced Planck constant (set to 1 in natural units)
+    - ∂U/∂t is the time derivative of the transformation matrix
+
+    After this transformation, terms that oscillate rapidly in the original frame
+    become either static or slowly varying in the rotating frame, allowing the
+    high-frequency oscillations to be averaged out (the actual "approximation"
+    part of the RWA).
 
     Args:
         hamiltonian: An instance of HamiltonianSymbolic containing the quantum
@@ -60,6 +83,7 @@ def create_hamiltonian_rwa(
     Raises:
         AttributeError: If required attributes are missing from the hamiltonian object.
         ValueError: If dimensions of transform matrix don't match the Hamiltonian.
+        RuntimeError: If the calculation of the RWA Hamiltonian fails.
     """
     # Input validation
     if transform.rows != hamiltonian.nstates or transform.cols != hamiltonian.nstates:

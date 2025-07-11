@@ -1,7 +1,9 @@
 """Graph transformation utilities for RWA calculations.
 
 This module provides functions to create and manipulate graphs that represent
-quantum state couplings, and to generate transformations based on these graphs.
+quantum state couplings, and to generate unitary transformations based on these graphs.
+These transformations are used to move into rotating frames for applying the
+rotating wave approximation (RWA) in quantum systems.
 """
 
 from typing import Sequence
@@ -20,10 +22,14 @@ def create_coupling_graph(
     and edges represent couplings between states. Each edge is annotated with symbolic
     parameters for frequency (ω) and Rabi frequency (Ω) that characterize the coupling.
 
+    For multiple couplings that share the same frequency, coefficient symbols (a0, a1, etc.)
+    are introduced to allow independent control of coupling strengths within the same
+    frequency group.
+
     Args:
         couplings: A list of lists of tuples, where each tuple contains two elements
             representing the indices of coupled states. Each sublist represents a
-            group of couplings that share the same frequency and Rabi parameters.
+            group of couplings that share the same frequency.
         nstates: An integer representing the total number of states in the system.
 
     Returns:
@@ -32,15 +38,15 @@ def create_coupling_graph(
             - Edges represent couplings between states
             - Each edge has attributes:
                 * frequency: Symbolic frequency parameter (ω)
-                * rabi: Symbolic Rabi frequency parameter (a0*Ω0, a1*Ω0, b0*Ω1, etc.)
+                * rabi: Symbolic Rabi frequency parameter (Ω or a{n}*Ω)
                 * type: String identifier ("coupling")
 
     Note:
-        Rabi frequencies use the format letter+number * Omega, where:
-        - Letters (a, b, c, ...) identify different coupling sets
-        - Numbers (0, 1, 2, ...) identify different couplings within a set
-        - Each letter-number combo is multiplied by its corresponding Omega symbol
-        Example: a0*Ω0, a1*Ω0, a2*Ω0, b0*Ω1, b1*Ω1, etc.
+        Rabi frequencies use the format a{number} * Omega only when there's more
+        than one coupling in the group. For single couplings, only the base Omega is used.
+        For example:
+        - For a group with multiple couplings: a0*Ω0, a1*Ω0, a2*Ω0
+        - For a group with a single coupling: just Ω1
     """
     # Initialize an empty MultiGraph (allows multiple edges between same nodes)
     coupling_graph = nx.MultiGraph()
@@ -49,18 +55,15 @@ def create_coupling_graph(
     coupling_graph.add_nodes_from(range(nstates))
 
     # Create symbolic parameters for frequencies and base Rabi frequencies
-    frequencies = smp.symbols(f"ω0:{len(couplings)}")
+    frequencies = smp.symbols(f"ω0:{len(couplings)}", real=True)
     base_rabis = smp.symbols(f"Ω0:{len(couplings)}", complex=True)
 
-    # Use letters a-z for coupling set identifiers
-    coupling_identifiers = string.ascii_lowercase
+    # Keep track of the global identifier index (across all coupling sets)
+    global_identifier_index = 0
 
     # Process each coupling group
     for idx, (frequency, base_rabi, coupling_group) in enumerate(zip(frequencies, base_rabis, couplings)):
-        # Get the letter identifier for this coupling set (a, b, c, ...)
-        letter = coupling_identifiers[idx % len(coupling_identifiers)]
-
-        # Only use letter identifiers if there's more than one coupling in the group
+        # Only use identifiers if there's more than one coupling in the group
         multiple_couplings = len(coupling_group) > 1
 
         # For each coupling in the group, create the appropriate Rabi frequency
@@ -68,7 +71,8 @@ def create_coupling_graph(
             # For single couplings, use the base Rabi directly
             # For multiple couplings, create coefficient symbols (a0, a1, etc.)
             if multiple_couplings:
-                coef = smp.symbols(f"{letter}{i}", real=True)
+                coef = smp.symbols(f"a{global_identifier_index}", real=True)
+                global_identifier_index += 1
                 rabi = coef * base_rabi
             else:
                 rabi = base_rabi
@@ -87,11 +91,10 @@ def create_coupling_graph(
 
 def create_transform_matrix(
     coupling_graph: nx.Graph,
-    coupling_phase: dict[tuple[int, int], Sequence[smp.Symbol]],
 ) -> smp.Matrix:
     """Create a transformation matrix based on the coupling graph.
 
-    This function analyzes the coupling graph to determine the shortest paths
+    This function analyzes the coupling graph to determine the paths
     between quantum states and generates a transformation matrix. It uses the
     coupling information to calculate phase factors for each state, resulting in
     a diagonal transformation matrix that can be used for rotating the Hamiltonian
@@ -100,15 +103,12 @@ def create_transform_matrix(
     Args:
         coupling_graph (nx.Graph): A NetworkX graph where nodes represent quantum
             states and edges represent couplings between states.
-        coupling_phase (dict): Dictionary mapping tuples of state indices to their
-            coupling phase symbols.
 
     Returns:
         smp.Matrix: A diagonal transformation matrix where each element [i,i] contains
             a time-dependent exponential phase factor calculated from the coupling path.
-
-    Raises:
-        nx.NetworkXNoPath: If there is no path between a state and the reference node.
+            If no path exists between a state and the reference node, the corresponding
+            entry is set to 1 (no transformation).
     """
     # Get the total number of states from the graph
     nstates = coupling_graph.number_of_nodes()
@@ -125,20 +125,23 @@ def create_transform_matrix(
 
     # Calculate transformation for each state
     for state_idx in range(nstates):
-        # Calculate the phase for this state
-        phase = _calculate_phase_along_path(
-            coupling_graph, coupling_phase, state_idx, reference_node
-        )
+        try:
+            # Calculate the phase for this state
+            phase = _calculate_phase_along_path(
+                coupling_graph, state_idx, reference_node
+            )
 
-        # Set the diagonal element with the calculated phase
-        transform_matrix[state_idx, state_idx] = smp.exp(smp.I * phase * t)
+            # Set the diagonal element with the calculated phase
+            transform_matrix[state_idx, state_idx] = smp.exp(smp.I * phase * t)
+        except nx.NetworkXNoPath:
+            # If no path exists, set the matrix element to 1 (no transformation)
+            transform_matrix[state_idx, state_idx] = 1
 
     return transform_matrix
 
 
 def _calculate_phase_along_path(
     coupling_graph: nx.Graph,
-    coupling_phase: dict[tuple[int, int], Sequence[smp.Symbol]],
     source: int,
     target: int,
 ) -> smp.Expr:
@@ -146,7 +149,6 @@ def _calculate_phase_along_path(
 
     Args:
         coupling_graph: NetworkX graph representing state couplings
-        coupling_phase: Dictionary of coupling phases between state pairs
         source: Source state index
         target: Target (reference) state index
 
@@ -156,14 +158,14 @@ def _calculate_phase_along_path(
     Raises:
         nx.NetworkXNoPath: If no path exists between source and target
     """
-    try:
-        shortest_path = nx.algorithms.shortest_path(
-            coupling_graph, source=source, target=target, weight="weight"
-        )
-    except nx.NetworkXNoPath:
-        raise nx.NetworkXNoPath(
-            f"No path exists between state {source} and reference state {target}"
-        )
+    # Special case: if source equals target, return zero phase
+    if source == target:
+        return smp.S(0)
+
+    # Find shortest path between source and target
+    shortest_path = nx.algorithms.shortest_path(
+        coupling_graph, source=source, target=target, weight="weight"
+    )
 
     # Initialize the accumulated phase
     phase = smp.S(0)
@@ -174,41 +176,9 @@ def _calculate_phase_along_path(
         start, stop = shortest_path[j : j + 2]
 
         # Get the coupling phase between these states
-        phase += _get_coupling_phase(coupling_phase, start, stop)
+        phase += coupling_graph.get_edge_data(start, stop)[0]["frequency"]
 
     return phase
-
-
-def _get_coupling_phase(
-    coupling_phase: dict[tuple[int, int], Sequence[smp.Symbol]], start: int, stop: int
-) -> smp.Expr:
-    """Extract the appropriate phase symbol from the coupling dictionary.
-
-    Args:
-        coupling_phase: Dictionary of coupling phases
-        start: Starting state index
-        stop: Ending state index
-
-    Returns:
-        sympy expression: The phase symbol or expression
-
-    Raises:
-        KeyError: If no coupling exists between the specified states
-    """
-    # Check if direct coupling exists
-    if (start, stop) in coupling_phase:
-        phase_info = coupling_phase[(start, stop)]
-    # Check if reverse coupling exists
-    elif (stop, start) in coupling_phase:
-        phase_info = coupling_phase[(stop, start)]
-    else:
-        raise KeyError(f"No coupling found between states {start} and {stop}")
-
-    # Return the appropriate phase symbol
-    if len(phase_info) > 1:
-        return list(phase_info)[0]
-    return phase_info[0] if isinstance(phase_info, Sequence) else phase_info
-
 
 def split_into_independent_components(graph: nx.Graph) -> list[nx.Graph]:
     """Split a graph into its independent connected components.
