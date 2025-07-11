@@ -15,20 +15,48 @@ def create_coupling_graph(
 ) -> nx.Graph:
     """Create a graph representing the couplings between quantum states.
 
+    This function builds a NetworkX MultiGraph where nodes represent quantum states
+    and edges represent couplings between states. Each edge is annotated with symbolic
+    parameters for frequency (ω) and Rabi frequency (Ω) that characterize the coupling.
+
     Args:
         couplings: A list of lists of tuples, where each tuple contains two elements
-            representing the indices of coupled states.
+            representing the indices of coupled states. Each sublist represents a
+            group of couplings that share the same frequency and Rabi parameters.
         nstates: An integer representing the total number of states in the system.
 
     Returns:
-        nx.Graph: A NetworkX graph where nodes represent states and edges represent couplings.
+        nx.Graph: A NetworkX MultiGraph where:
+            - Nodes represent quantum states (indexed from 0 to nstates-1)
+            - Edges represent couplings between states
+            - Each edge has attributes:
+                * frequency: Symbolic frequency parameter (ω)
+                * rabi: Symbolic Rabi frequency parameter (Ω)
+                * type: String identifier ("coupling")
     """
+    # Initialize an empty MultiGraph (allows multiple edges between same nodes)
     coupling_graph = nx.MultiGraph()
+
+    # Add nodes representing quantum states (numbered 0 to nstates-1)
     coupling_graph.add_nodes_from(range(nstates))
 
-    for coupling in couplings:
-        for idg, ide in coupling:
-            coupling_graph.add_edge(idg, ide)
+    # Create symbolic parameters for frequencies and Rabi frequencies
+    # ω0, ω1, ... for frequencies and Ω0, Ω1, ... for Rabi frequencies
+    frequencies = smp.symbols(f"ω0:{len(couplings)}")
+    rabis = smp.symbols(f"Ω0:{len(couplings)}", complex=True)
+
+    # Add edges to the graph based on the provided couplings
+    for frequency, rabi, coupling_group in zip(frequencies, rabis, couplings):
+        # Each coupling_group contains pairs of states that share the same parameters
+        for state1, state2 in coupling_group:
+            # Add an edge between the coupled states with the corresponding parameters
+            coupling_graph.add_edge(
+                state1,
+                state2,
+                frequency=frequency,
+                rabi=rabi,
+                type="coupling"
+            )
 
     return coupling_graph
 
