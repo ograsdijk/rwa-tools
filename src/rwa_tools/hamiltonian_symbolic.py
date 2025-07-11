@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Sequence
+import string
 
 import networkx as nx
 import sympy as smp
@@ -23,6 +24,7 @@ class HamiltonianSymbolic:
         coupling_symbols: Symbolic variables representing field frequencies (ω0, ω1, etc.).
         rabi_symbols: Symbolic variables representing Rabi frequencies (Ω0, Ω1, etc.).
         omega_energy: Dictionary mapping field frequencies to corresponding energy differences.
+        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc. for each coupling).
     """
 
     nstates: int
@@ -36,6 +38,7 @@ class HamiltonianSymbolic:
     detuning_symbols: Sequence[smp.Symbol]
     rabi_symbols: Sequence[smp.Symbol]
     omega_substitutions: dict[smp.Symbol, smp.Symbol]
+    coupling_identifiers: list[list[smp.Symbol]]
 
 
 def create_hamiltonian_symbolic(
@@ -87,7 +90,7 @@ def create_hamiltonian_symbolic(
     hamiltonian = smp.diag(*energy_symbols)
 
     # Create the coupling matrix and phase dictionary
-    coupling_matrix, coupling_phase, omega_substitutions = _create_coupling_matrix(
+    coupling_matrix, coupling_phase, omega_substitutions, coupling_identifiers = _create_coupling_matrix(
         nstates,
         couplings,
         energy_symbols,
@@ -111,6 +114,7 @@ def create_hamiltonian_symbolic(
         detuning_symbols=detuning_symbols,
         rabi_symbols=rabi_symbols,
         omega_substitutions=omega_substitutions,
+        coupling_identifiers=coupling_identifiers,
     )
 
 
@@ -122,7 +126,7 @@ def _create_coupling_matrix(
     detuning_symbols: Sequence[smp.Symbol],
     rabi_symbols: Sequence[smp.Symbol],
 ) -> tuple[
-    smp.Matrix, dict[tuple[int, int], list[smp.Symbol]], dict[smp.Symbol, smp.Symbol]
+    smp.Matrix, dict[tuple[int, int], list[smp.Symbol]], dict[smp.Symbol, smp.Symbol], list[list[smp.Symbol]]
 ]:
     """Create the coupling matrix representing field interactions.
 
@@ -132,29 +136,56 @@ def _create_coupling_matrix(
         energy_symbols: Symbolic energy level variables
         coupling_symbols: Symbolic coupling frequency variables
         detuning_symbols: Symbolic detuning frequency variables
-        rabi_symbols: Symbolic Rabi frequency variables
+        rabi_symbols: Symbolic Rabi frequency variables (base Rabi frequencies)
 
     Returns:
         Tuple containing:
         - Coupling matrix
         - Dictionary mapping state pairs to coupling phases
         - Dictionary mapping coupling frequencies to energy differences
+        - List of lists of coupling identifiers used for each coupling group
     """
     coupling_matrix = smp.zeros(nstates, nstates, complex=True)
     coupling_phase = dict()
     omega_substitutions = dict()
 
+    # Store the coupling identifiers for each coupling group
+    all_coupling_identifiers = []
+
     t = smp.Symbol("t", real=True)  # Time variable
 
-    for omega, detuning, rabi, coupling_group in zip(
+    # Use letters a-z for coupling set identifiers
+    coupling_identifiers = string.ascii_lowercase
+
+    for idx, (omega, detuning, base_rabi, coupling_group) in enumerate(zip(
         coupling_symbols, detuning_symbols, rabi_symbols, couplings
-    ):
-        for state1, state2 in coupling_group:
-            # Store the relationship between frequency and energy difference
-            if omega not in omega_substitutions:
-                omega_substitutions[omega] = (
-                    energy_symbols[state2] - energy_symbols[state1] + detuning
-                )
+    )):
+        # Get the letter identifier for this coupling set (a, b, c, ...)
+        letter = coupling_identifiers[idx % len(coupling_identifiers)]
+
+        # Store the relationship between frequency and energy difference
+        if omega not in omega_substitutions:
+            omega_substitutions[omega] = (
+                energy_symbols[coupling_group[0][1]] - energy_symbols[coupling_group[0][0]] + detuning
+            )
+
+        # Only use letter identifiers if there's more than one coupling in the group
+        multiple_couplings = len(coupling_group) > 1
+
+        # Store the identifiers for this coupling group
+        group_identifiers = []
+
+        # Process each coupling in the group
+        for i, (state1, state2) in enumerate(coupling_group):
+            # For single couplings, use the base Rabi directly
+            # For multiple couplings, create coefficient symbols (a0, a1, etc.)
+            if multiple_couplings:
+                coef = smp.symbols(f"{letter}{i}", real=True)
+                rabi = coef * base_rabi
+                group_identifiers.append(coef)
+            else:
+                rabi = base_rabi
+                group_identifiers.append(None)  # No identifier for single couplings
 
             # Calculate the coupling term for the states
             coupling_term = rabi * smp.exp(smp.I * omega * t) / 2
@@ -169,7 +200,10 @@ def _create_coupling_matrix(
             else:
                 coupling_phase[(state1, state2)].append(omega)
 
-    return coupling_matrix, coupling_phase, omega_substitutions
+        # Add the identifiers for this group to the list of all identifiers
+        all_coupling_identifiers.append(group_identifiers)
+
+    return coupling_matrix, coupling_phase, omega_substitutions, all_coupling_identifiers
 
 
 def common_diag_symbols(matrix: smp.Matrix) -> set:
@@ -333,6 +367,7 @@ def split_hamiltonian_by_components(
             detuning_symbols=detuning_symbols,
             rabi_symbols=rabi_symbols,
             omega_substitutions=omega_substitutions,
+            coupling_identifiers=[],
         )
 
         result_hamiltonians.append(new_ham_symbolic)

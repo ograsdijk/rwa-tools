@@ -20,7 +20,8 @@ class HamiltonianRWA:
         coupling_symbols: Symbolic variables representing field frequencies (ω0, ω1, etc.).
         detuning_symbols: Symbolic variables representing frequency detunings (Δ0, Δ1, etc.).
         rabi_symbols: Symbolic variables representing Rabi frequencies (Ω0, Ω1, etc.).
-        omega_energy: Dictionary mapping field frequencies to corresponding energy differences.
+        energy_symbols: Symbolic variables representing energy levels (E0, E1, etc.).
+        coupling_identifiers: List of lists of coupling identifiers (a0, a1, etc. for each coupling).
     """
 
     nstates: int
@@ -28,6 +29,7 @@ class HamiltonianRWA:
     detuning_symbols: Sequence[smp.Symbol]
     rabi_symbols: Sequence[smp.Symbol]
     energy_symbols: Sequence[smp.Symbol]
+    coupling_identifiers: list[list[smp.Symbol]]
 
 
 def create_hamiltonian_rwa(
@@ -112,4 +114,5 @@ def create_hamiltonian_rwa(
         detuning_symbols=hamiltonian.detuning_symbols,
         rabi_symbols=hamiltonian.rabi_symbols,
         energy_symbols=hamiltonian.energy_symbols,
+        coupling_identifiers=hamiltonian.coupling_identifiers,
     )

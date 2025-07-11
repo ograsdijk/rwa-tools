@@ -5,6 +5,7 @@ quantum state couplings, and to generate transformations based on these graphs.
 """
 
 from typing import Sequence
+import string
 
 import networkx as nx
 import sympy as smp
@@ -31,8 +32,15 @@ def create_coupling_graph(
             - Edges represent couplings between states
             - Each edge has attributes:
                 * frequency: Symbolic frequency parameter (ω)
-                * rabi: Symbolic Rabi frequency parameter (Ω)
+                * rabi: Symbolic Rabi frequency parameter (a0*Ω0, a1*Ω0, b0*Ω1, etc.)
                 * type: String identifier ("coupling")
+
+    Note:
+        Rabi frequencies use the format letter+number * Omega, where:
+        - Letters (a, b, c, ...) identify different coupling sets
+        - Numbers (0, 1, 2, ...) identify different couplings within a set
+        - Each letter-number combo is multiplied by its corresponding Omega symbol
+        Example: a0*Ω0, a1*Ω0, a2*Ω0, b0*Ω1, b1*Ω1, etc.
     """
     # Initialize an empty MultiGraph (allows multiple edges between same nodes)
     coupling_graph = nx.MultiGraph()
@@ -40,15 +48,31 @@ def create_coupling_graph(
     # Add nodes representing quantum states (numbered 0 to nstates-1)
     coupling_graph.add_nodes_from(range(nstates))
 
-    # Create symbolic parameters for frequencies and Rabi frequencies
-    # ω0, ω1, ... for frequencies and Ω0, Ω1, ... for Rabi frequencies
+    # Create symbolic parameters for frequencies and base Rabi frequencies
     frequencies = smp.symbols(f"ω0:{len(couplings)}")
-    rabis = smp.symbols(f"Ω0:{len(couplings)}", complex=True)
+    base_rabis = smp.symbols(f"Ω0:{len(couplings)}", complex=True)
 
-    # Add edges to the graph based on the provided couplings
-    for frequency, rabi, coupling_group in zip(frequencies, rabis, couplings):
-        # Each coupling_group contains pairs of states that share the same parameters
-        for state1, state2 in coupling_group:
+    # Use letters a-z for coupling set identifiers
+    coupling_identifiers = string.ascii_lowercase
+
+    # Process each coupling group
+    for idx, (frequency, base_rabi, coupling_group) in enumerate(zip(frequencies, base_rabis, couplings)):
+        # Get the letter identifier for this coupling set (a, b, c, ...)
+        letter = coupling_identifiers[idx % len(coupling_identifiers)]
+
+        # Only use letter identifiers if there's more than one coupling in the group
+        multiple_couplings = len(coupling_group) > 1
+
+        # For each coupling in the group, create the appropriate Rabi frequency
+        for i, (state1, state2) in enumerate(coupling_group):
+            # For single couplings, use the base Rabi directly
+            # For multiple couplings, create coefficient symbols (a0, a1, etc.)
+            if multiple_couplings:
+                coef = smp.symbols(f"{letter}{i}", real=True)
+                rabi = coef * base_rabi
+            else:
+                rabi = base_rabi
+
             # Add an edge between the coupled states with the corresponding parameters
             coupling_graph.add_edge(
                 state1,
